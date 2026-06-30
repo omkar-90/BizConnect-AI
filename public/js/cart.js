@@ -268,7 +268,8 @@ const Cart = {
 
   // Process checkout
   async processCheckout() {
-    const shippingAddress = document.getElementById('shipping-address').value.trim();
+    const shippingAddressInput = document.getElementById('shipping-address') || document.getElementById('shipping-address-checkout');
+    const shippingAddress = (shippingAddressInput ? shippingAddressInput.value : '').trim();
     
     if (!shippingAddress) {
       this.showMessage('Please enter a shipping address', 'error');

@@ -9,3 +9,8 @@ MONGODB_URI=mongodb://localhost:27017/bizconnect-ai
 # Server Port (optional - defaults to 3000)
 # Cloud platforms like Heroku, Railway, etc. will set this automatically
 PORT=3000
+
+# Stripe Demo (replace with your own test keys)
+STRIPE_SECRET_KEY=sk_test_your_secret_key
+STRIPE_PUBLISHABLE_KEY=pk_test_your_publishable_key
+STRIPE_WEBHOOK_SECRET=whsec_optional_if_using_webhooks

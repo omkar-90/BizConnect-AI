@@ -8,6 +8,7 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const path = require('path');
 const MLService = require('./ml-models/ml_service');
+const Stripe = require('stripe');
 
 // Middleware
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -15,6 +16,9 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 // MongoDB Connection - Local Database
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bizconnect-ai';
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || '';
+const stripe = STRIPE_SECRET_KEY ? Stripe(STRIPE_SECRET_KEY) : null;
 
 mongoose.connect(MONGODB_URI)
 .then(() => {
@@ -510,6 +514,153 @@ app.get('/api/vendor/products', async (req, res) => {
 // Test endpoint to verify server is working
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is working', timestamp: new Date().toISOString() });
+});
+
+// ==================== PAYMENTS (Stripe Checkout) ====================
+app.post('/api/pay/create-checkout-session', async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe not configured on server' });
+    }
+
+    const token = req.headers.authorization;
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+    const tokenParts = token.replace('Bearer ', '').split('-');
+    if (tokenParts.length !== 3) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const customerId = tokenParts[1];
+    const customer = await User.findById(customerId);
+    if (!customer || customer.role !== 'customer') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Load cart items
+    const cart = await Cart.findOne({ customerId }).populate('items.productId');
+    if (!cart || cart.items.length === 0) {
+      return res.status(400).json({ error: 'Cart is empty' });
+    }
+
+    // Build line items for Stripe Checkout
+    const lineItems = cart.items.map((item) => ({
+      price_data: {
+        currency: 'inr',
+        product_data: {
+          name: item.productId.name,
+          description: item.productId.description?.slice(0, 200) || undefined
+        },
+        unit_amount: Math.round(Number(item.price || item.productId.price) * 100)
+      },
+      quantity: item.quantity
+    }));
+
+    const origin = req.headers.origin || `http://localhost:${port}`;
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: lineItems,
+      success_url: `${origin}/customer-dashboard?payment=success`,
+      cancel_url: `${origin}/customer-dashboard?payment=cancelled`,
+      metadata: {
+        app_customer_id: customerId
+      }
+    });
+
+    res.json({ id: session.id, url: session.url, publishableKey: STRIPE_PUBLISHABLE_KEY });
+  } catch (error) {
+    console.error('Stripe Checkout error:', error);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+// Finalize order after successful Stripe Checkout
+app.post('/api/pay/complete', async (req, res) => {
+  try {
+    const token = req.headers.authorization;
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+    const tokenParts = token.replace('Bearer ', '').split('-');
+    if (tokenParts.length !== 3) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const customerId = tokenParts[1];
+    const customer = await User.findById(customerId);
+    if (!customer || customer.role !== 'customer') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { shippingAddress } = req.body;
+    if (!shippingAddress) {
+      return res.status(400).json({ error: 'Shipping address is required' });
+    }
+
+    const cart = await Cart.findOne({ customerId }).populate('items.productId');
+    if (!cart || cart.items.length === 0) {
+      return res.status(400).json({ error: 'Cart is empty' });
+    }
+
+    // Group items by vendor and calculate totals (similar to /api/orders/create)
+    const vendorOrders = {};
+    let totalAmount = 0;
+
+    for (const item of cart.items) {
+      const product = item.productId;
+      if (!product) {
+        return res.status(400).json({ error: 'Product not found in cart item' });
+      }
+      const vendorId = product.vendorId.toString();
+      if (!vendorOrders[vendorId]) {
+        vendorOrders[vendorId] = { vendorId, items: [], vendorTotal: 0 };
+      }
+      if (product.stock < item.quantity) {
+        return res.status(400).json({ error: `Insufficient stock for ${product.name}. Only ${product.stock} items available.` });
+      }
+      const itemTotal = product.price * item.quantity;
+      vendorOrders[vendorId].items.push({
+        productId: product._id,
+        quantity: item.quantity,
+        price: product.price
+      });
+      vendorOrders[vendorId].vendorTotal += itemTotal;
+      totalAmount += itemTotal;
+
+      product.stock -= item.quantity;
+      await product.save();
+    }
+
+    const orders = [];
+    for (const vendorId in vendorOrders) {
+      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+      const order = new Order({
+        customerId,
+        vendorId,
+        items: vendorOrders[vendorId].items,
+        totalAmount: vendorOrders[vendorId].vendorTotal,
+        shippingAddress,
+        status: 'confirmed',
+        paymentStatus: 'paid',
+        orderNumber
+      });
+      await order.save();
+      orders.push(order);
+    }
+
+    await Cart.findOneAndDelete({ customerId });
+
+    res.status(201).json({
+      message: 'Payment completed and orders created',
+      orders,
+      totalAmount
+    });
+  } catch (error) {
+    console.error('Finalize payment error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Add product (vendor only)

@@ -119,13 +119,12 @@ class MLPredictions {
     // Helper method to get auth token
     getAuthToken() {
         try {
-            if (typeof Storage !== 'undefined' && localStorage.getItem('token')) {
-                const token = localStorage.getItem('token');
-                console.log('Retrieved token from localStorage:', token);
-                return token;
+            if (typeof Storage !== 'undefined' && typeof Storage.getToken === 'function') {
+                const token = Storage.getToken();
+                if (token) return token;
             }
-            console.log('No token found in localStorage');
-            return null;
+            const token = localStorage.getItem('accessToken');
+            return token || null;
         } catch (error) {
             console.error('Error getting auth token:', error);
             return null;
@@ -134,7 +133,10 @@ class MLPredictions {
 
     async getLowPerformingProducts(limit = 10) {
         try {
-            const response = await fetch(`${this.baseURL}/low-products?limit=${limit}`);
+            const token = this.getAuthToken();
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const response = await fetch(`${this.baseURL}/low-products?limit=${limit}` , { headers });
             const result = await response.json();
             
             if (result.status === 'success') {
@@ -151,7 +153,10 @@ class MLPredictions {
 
     async getCategoryInsights(category) {
         try {
-            const response = await fetch(`${this.baseURL}/category-insights/${encodeURIComponent(category)}`);
+            const token = this.getAuthToken();
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const response = await fetch(`${this.baseURL}/category-insights/${encodeURIComponent(category)}`, { headers });
             const result = await response.json();
             
             if (result.status === 'success') {
@@ -168,7 +173,10 @@ class MLPredictions {
 
     async getVendorInsights(vendorId) {
         try {
-            const response = await fetch(`${this.baseURL}/vendor-insights/${vendorId}`);
+            const token = this.getAuthToken();
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const response = await fetch(`${this.baseURL}/vendor-insights/${vendorId}`, { headers });
             const result = await response.json();
             
             if (result.status === 'success') {

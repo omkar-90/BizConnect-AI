@@ -29,6 +29,7 @@
     "env": "^0.0.2",
     "express": "^5.1.0",
     "mongoose": "^8.19.1",
-    "python-shell": "^5.0.0"
+    "python-shell": "^5.0.0",
+    "stripe": "^19.2.0"
   }
 }

@@ -357,6 +357,24 @@
     });
   }
 
+  // Prepare mapping helpers to avoid overlap between sections
+  const usedProductNames = new Set();
+  const topCandidates = [...allProducts].sort((a, b) => (b.units || 0) - (a.units || 0));
+  const lowCandidates = [...allProducts].sort((a, b) => (a.units || 0) - (b.units || 0));
+  function pickNameForIndex(idx, fallbackName, list) {
+    if (list.length === 0) return fallbackName || 'Product';
+    // Try sequentially from idx to find a not-yet-used product name
+    for (let i = 0; i < list.length; i++) {
+      const candidate = list[(idx + i) % list.length];
+      if (candidate && candidate.name && !usedProductNames.has(candidate.name)) {
+        usedProductNames.add(candidate.name);
+        return candidate.name;
+      }
+    }
+    // Fallback if all are used
+    return fallbackName || list[idx % list.length].name || 'Product';
+  }
+
   // Render Future Best Sellers with ML Predictions
   const futureBestSellers = document.querySelector('#future-bestsellers .future-predict-list');
   if (futureBestSellers) {
@@ -366,7 +384,9 @@
     mlPredictions.getTopPerformingProducts(5).then(products => {
       if (products && products.length > 0) {
         futureBestSellers.innerHTML = '';
-        products.forEach(product => {
+        products.forEach((product, idx) => {
+          const fallbackName = product.name || product.product_name || product.title || String(product.product_id || 'Product');
+          const displayName = pickNameForIndex(idx, fallbackName, topCandidates);
           const li = document.createElement('li');
           const salesPrediction = Math.round(parseFloat(product.sales_regressor_prediction) || 0);
           const revenuePrediction = Math.round(parseFloat(product.revenue_regressor_prediction) || 0);
@@ -375,7 +395,7 @@
           
           li.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <strong>Product ${product.product_id}</strong>
+              <strong>${displayName}</strong>
               <span style="background: #10b981; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">${salesPerf}</span>
             </div>
             <div style="font-size: 14px; color: #64748b;">
@@ -411,7 +431,9 @@
     mlPredictions.getLowPerformingProducts(5).then(products => {
       if (products && products.length > 0) {
         futurePoorSellers.innerHTML = '';
-        products.forEach(product => {
+        products.forEach((product, idx) => {
+          const fallbackName = product.name || product.product_name || product.title || String(product.product_id || 'Product');
+          const displayName = pickNameForIndex(idx, fallbackName, lowCandidates);
           const li = document.createElement('li');
           const salesPrediction = Math.round(parseFloat(product.sales_regressor_prediction) || 0);
           const revenuePrediction = Math.round(parseFloat(product.revenue_regressor_prediction) || 0);
@@ -421,7 +443,7 @@
           
           li.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <strong>Product ${product.product_id}</strong>
+              <strong>${displayName}</strong>
               <span style="background: #ef4444; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">${salesPerf}</span>
             </div>
             <div style="font-size: 14px; color: #64748b;">
