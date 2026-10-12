@@ -88,8 +88,12 @@ const productSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 const Product = mongoose.model('Product', productSchema);
 
-// MongoDB Connection - Local Database
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bizconnect-ai';
+// MongoDB Connection - loaded from environment variable
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  console.error('Error: MONGODB_URI environment variable is not set. Please define it in your .env file.');
+  process.exit(1);
+}
 
 async function seedDatabase() {
   try {
